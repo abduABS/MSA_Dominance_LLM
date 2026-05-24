@@ -1,0 +1,74 @@
+# Validation Experiment - Supervised Linear Probe (Verbose), can be appended as a cell to any PUD or Dialect .ipynb file
+import numpy as np
+import matplotlib.pyplot as plt
+import time
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import accuracy_score, classification_report
+
+def run_linear_probe_verbose(layer_idx, data_dict, test_size=0.2, random_state=42):
+    print(f"\n[{time.strftime('%H:%M:%S')}] --- Starting Layer {layer_idx} ---")
+    start_time = time.time()
+
+    X_list, y_list = [], []
+    for lang_iso, tensor in data_dict.items():
+        if tensor is None:
+            continue
+        X_lang = tensor[:, layer_idx, :].float().numpy()
+        y_lang = np.array([lang_iso] * X_lang.shape[0])
+        X_list.append(X_lang)
+        y_list.append(y_lang)
+
+    X = np.vstack(X_list)
+    y = np.concatenate(y_list)
+    print(f"[{time.time() - start_time:.1f}s] Extracted data. Total shape: {X.shape}")
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=random_state, stratify=y
+    )
+
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+    print(f"[{time.time() - start_time:.1f}s] Data scaled. Starting Logistic Regression training...")
+
+    # Verbose=2 forces the solver to print its loss calculations per epoch
+    # n_jobs is set to a fixed integer to prevent thread deadlocks
+    # Using lbfgs solver and n_jobs=1 to guarantee no freezing
+    clf = LogisticRegression(
+        solver='lbfgs',
+        max_iter=250,
+        random_state=random_state,
+        n_jobs=1,       # Forces a single thread, bypassing the lock
+        verbose=1       # Will print a few lines to show progress
+    )
+    clf.fit(X_train_scaled, y_train)
+
+    print(f"[{time.time() - start_time:.1f}s] Training complete. Evaluating test set...")
+
+    y_pred = clf.predict(X_test_scaled)
+    acc = accuracy_score(y_test, y_pred)
+
+    print(f"[{time.strftime('%H:%M:%S')}] --- Layer {layer_idx} Finished | Accuracy: {acc:.4f} ---")
+    return acc, clf, scaler, y_test, y_pred
+
+# --- Execute the probe across all layers ---
+probe_accuracies = []
+
+print("Running linear probes across all layers with verbose logging...")
+# Removed tqdm because it conflicts visually with the verbose text output
+for layer_idx in range(NUM_LAYERS):
+    acc, _, _, _, _ = run_linear_probe_verbose(layer_idx, data_dict)
+    probe_accuracies.append(acc)
+
+# --- Plotting the comparative results ---
+plt.figure(figsize=(8, 5))
+plt.plot(range(1, NUM_LAYERS + 1), probe_accuracies, marker='s', color='purple', label='Linear Probe Accuracy')
+plt.title("Supervised Linear Probe Accuracy Across Layers")
+plt.xlabel("Layer")
+plt.ylabel("Test Accuracy")
+plt.grid(True, alpha=0.3)
+plt.legend()
+plt.tight_layout()
+plt.show()
